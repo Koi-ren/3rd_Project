@@ -49,7 +49,7 @@ class Kinematic:
 
 def newOrientation(current, velocity):
     if velocity.length() > 0:
-        return math.atan2(velocity.x, velocity.y)
+        return math.atan2(velocity.x, velocity.y)  # x축 기준 라디안
     return current
 
 class SteeringOutput:
@@ -112,6 +112,7 @@ class KinematicArrive(KinematicSteeringBehavior):
         self.character.orientation = newOrientation(self.character.orientation, result.velocity)
         result.rotation = 0
         return result
+
 class SeekAndArrive(DynamicSteeringBehavior):
     def __init__(self, character, target, maxAcceleration, maxSpeed, targetRadius, slowRadius, timeToTarget=0.1):
         super().__init__(character, maxAcceleration)
@@ -142,8 +143,8 @@ class SeekAndArrive(DynamicSteeringBehavior):
                 result.linear.normalize()
                 result.linear = result.linear * self.maxAcceleration
 
-        # 방향 업데이트 추가
-        targetVelocity = direction  # 목표 방향 기반으로 속도 벡터 생성
+        # 방향 업데이트 (x축 기준)
+        targetVelocity = direction
         targetVelocity.normalize()
         targetVelocity = targetVelocity * (self.maxSpeed if distance > self.slowRadius else targetSpeed)
         self.character.orientation = newOrientation(self.character.orientation, targetVelocity)
@@ -151,17 +152,37 @@ class SeekAndArrive(DynamicSteeringBehavior):
         result.angular = 0
         return result
 
-# 테스트 코드
 if __name__ == "__main__":
-    character = Kinematic(position=Vector(0, 0), orientation=0.0)
-    target = Kinematic(position=Vector(10, 10), orientation=0.0)
-    seek_arrive = SeekAndArrive(character, target, maxAcceleration=1.0, maxSpeed=2.0, targetRadius=0.5, slowRadius=3.0)
+    # 플레이어와 적 위치 설정 (x, z 사용)
+    player_pos = Vector(59.35, 27.23)  # 플레이어 x, z
+    enemy_pos = Vector(135.46, 276.87)  # 적 x, z
 
-    print("SeekAndArrive 행동 시뮬레이션:")
-    for _ in range(15):
+    # Kinematic 객체 생성
+    character = Kinematic(position=player_pos, orientation=0.0)
+    target = Kinematic(position=enemy_pos, orientation=0.0)
+
+    # SeekAndArrive 설정
+    seek_arrive = SeekAndArrive(
+        character=character,
+        target=target,
+        maxAcceleration=1.0,    # 가속도 (조정 가능)
+        maxSpeed=5.0,           # 최대 속도 (상황에 맞게 조정)
+        targetRadius=5.0,       # 목표 도착 반경 (거리 단위에 맞춤)
+        slowRadius=50.0,        # 감속 시작 반경 (거리 단위에 맞춤)
+        timeToTarget=0.1        # 목표 도달 시간
+    )
+
+    print("SeekAndArrive 행동 시뮬레이션 (0.1초 단위, x축 기준 헤딩):")
+    time_step = 0.1
+    total_time = 58.5  # 주어진 시간에서 시작
+
+    while True:
         steering = seek_arrive.getSteering()
         if steering is None:
-            print("목표에 도달함!")
+            print(f"시간: {total_time:.1f}초 - 목표에 도달함!")
+            print(f"최종 위치: {character.position}, 속도: {character.velocity}, 헤딩: {character.orientation:.2f} 라디안")
             break
-        character.update(steering, maxSpeed=2.0, time=0.5)
-        print(f"위치: {character.position}, 속도: {character.velocity}, 방향: {character.orientation:.2f}")
+
+        character.update(steering, maxSpeed=5.0, time=time_step)
+        total_time += time_step
+        print(f"시간: {total_time:.1f}초 - 위치: {character.position}, 속도: {character.velocity}, 헤딩: {character.orientation:.2f} 라디안")

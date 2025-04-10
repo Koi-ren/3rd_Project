@@ -19,7 +19,6 @@ class SharedKeyValue:
     def get_key_value(self):
         return self.key_value
 
-
 sharedData = SharedData()
 sharedKeyValue = SharedKeyValue()
 

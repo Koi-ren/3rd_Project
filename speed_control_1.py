@@ -1,10 +1,8 @@
 # server.py
-import math
 import requests
 import time
 import threading
 from gameAI import Kinematic, Vector, Seek
-from utills import sharedKeyValue
 
 class GameState:
     """게임 데이터를 저장하고 관리하는 클래스"""
