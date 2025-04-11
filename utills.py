@@ -1,24 +1,23 @@
 # utills.py
 class SharedData:
     def __init__(self):
-        self.latest_data = None
+        self.data = None
 
     def set_data(self, data):
-        self.latest_data = data
+        self.data = data
 
     def get_data(self):
-        return self.latest_data
+        return self.data
 
 class SharedKeyValue:
     def __init__(self):
-        self.key_value = None
+        self.value = None
 
-    def set_key_value(self, key_value):
-        self.key_value = key_value
+    def set_key_value(self, key):
+        self.value = key
 
     def get_key_value(self):
-        return self.key_value
+        return self.value
 
 sharedData = SharedData()
 sharedKeyValue = SharedKeyValue()
-
