@@ -36,6 +36,11 @@ class Kinematic:
         self.rotation = rotation
 
     def update(self, steering, maxSpeed, time):
+        if steering is None:
+            self.velocity = Vector(0, 0)
+            self.rotation = 0
+            return
+
         self.velocity = self.velocity + (steering.linear * time)
         self.rotation += steering.angular * time
 
@@ -45,13 +50,14 @@ class Kinematic:
 
         self.position = self.position + (self.velocity * time)
         self.orientation += self.rotation * time
+        self.orientation = self.orientation % (2 * math.pi)
 
     def asVector(self):
         return Vector(math.cos(self.orientation), math.sin(self.orientation))
 
 def newOrientation(current, velocity):
     if velocity.length() > 0:
-        return math.atan2(velocity.x, velocity.y)
+        return math.atan2(velocity.y, velocity.x)
     return current
 
 class SteeringOutput:
@@ -107,5 +113,5 @@ class SeekAndArrive(DynamicSteeringBehavior):
 
         result.linear = targetVelocity
         result.angular = 0
-
+        print(f"Steering: direction={direction}, distance={distance:.2f}, targetSpeed={targetSpeed:.2f}, linear={result.linear}")
         return result

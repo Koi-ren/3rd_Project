@@ -14,45 +14,43 @@ class GameState:
         self.player_pos = {"x": 0.0, "y": 0.0, "z": 0.0}
         self.player_speed = 0.0
         self.player_health = 0.0
-        self.player_turret_x = 0.0
-        self.player_turret_y = 0.0
-        self.player_body_x = 0.0
-        self.player_body_y = 0.0
+        self.player_turret_angle = 0.0
+        self.player_body_angle = 0.0
         self.enemy_pos = {"x": 0.0, "y": 0.0, "z": 0.0}
         self.enemy_speed = 0.0
         self.enemy_health = 0.0
-        self.enemy_turret_x = 0.0
-        self.enemy_turret_y = 0.0
-        self.enemy_body_x = 0.0
-        self.enemy_body_y = 0.0
+        self.enemy_turret_angle = 0.0
+        self.enemy_body_angle = 0.0
         self.has_valid_data = False
+        self.last_update_time = 0.0  # track last data update
 
     def updateData(self, data):
         try:
-            self.time_value = data.get("time", self.time_value)
-            self.distance = data.get("distance", self.distance)
+            new_time = data.get("time", self.time_value)
+            if new_time <= self.last_update_time:
+                print("Skipping stale data")
+                return  # skip if data is not newer
+            self.time_value = new_time
+            self.last_update_time = new_time
+            self.distance = data.get("distance", self.distance) / 10.0
             
             player_pos = data.get("playerPos", {})
             self.player_pos["x"] = player_pos.get("x", self.player_pos["x"])
             self.player_pos["y"] = player_pos.get("y", self.player_pos["y"])
             self.player_pos["z"] = player_pos.get("z", self.player_pos["z"])
-            self.player_speed = data.get("playerSpeed", self.player_speed)
+            self.player_speed = data.get("playerSpeed", self.player_speed) / 10.0
             self.player_health = data.get("playerHealth", self.player_health)
-            self.player_turret_x = data.get("playerTurretX", self.player_turret_x)
-            self.player_turret_y = data.get("playerTurretY", self.player_turret_y)
-            self.player_body_x = data.get("playerBodyX", self.player_body_x)
-            self.player_body_y = data.get("playerBodyY", self.player_body_y)
+            self.player_turret_angle = data.get("playerTurretX", self.player_turret_angle)
+            self.player_body_angle = data.get("playerBodyX", self.player_body_angle)
             
             enemy_pos = data.get("enemyPos", {})
             self.enemy_pos["x"] = enemy_pos.get("x", self.enemy_pos["x"])
             self.enemy_pos["y"] = enemy_pos.get("y", self.enemy_pos["y"])
             self.enemy_pos["z"] = enemy_pos.get("z", self.enemy_pos["z"])
-            self.enemy_speed = data.get("enemySpeed", self.enemy_speed)
+            self.enemy_speed = data.get("enemySpeed", self.enemy_speed) / 10.0
             self.enemy_health = data.get("enemyHealth", self.enemy_health)
-            self.enemy_turret_x = data.get("enemyTurretX", self.enemy_turret_x)
-            self.enemy_turret_y = data.get("enemyTurretY", self.enemy_turret_y)
-            self.enemy_body_x = data.get("enemyBodyX", self.enemy_body_x)
-            self.enemy_body_y = data.get("enemyBodyY", self.enemy_body_y)
+            self.enemy_turret_angle = data.get("enemyTurretX", self.enemy_turret_angle)
+            self.enemy_body_angle = data.get("enemyBodyX", self.enemy_body_angle)
             
             self.has_valid_data = bool(player_pos and enemy_pos)
             print(f"Updated GameState: {self}")
@@ -66,7 +64,8 @@ class GameState:
     def __str__(self):
         return (f"Time: {self.time_value}, Distance: {self.distance}, "
                 f"Player Pos: ({self.player_pos['x']}, {self.player_pos['z']}), "
-                f"Enemy Pos: ({self.enemy_pos['x']}, {self.enemy_pos['z']})")
+                f"Enemy Pos: ({self.enemy_pos['x']}, {self.enemy_pos['z']}), "
+                f"Player Body Angle: {self.player_body_angle} deg")
 
 class GameServer:
     def __init__(self):
@@ -77,24 +76,25 @@ class GameServer:
         self.seek_arrive = SeekAndArrive(
             character=self.character,
             target=self.target,
-            maxAcceleration=1.0,
-            maxSpeed=19.44,
-            targetRadius=5.0,
-            slowRadius=50.0,
+            maxAcceleration=0.1,
+            maxSpeed=1.944,
+            targetRadius=0.5,
+            slowRadius=5.0,
             timeToTarget=0.1
         )
-        self.time_step = 0.05
+        self.time_step = 0.1
         self.input_count_w = 0
         self.current_speed = 0.0
         self.max_rotation_per_step = math.radians(5.62)
         self.last_command = "STOP"
         self.shared_key_value.set_key_value("STOP")
+        self.last_position = Vector(0, 0)  # track last computed position
 
     def calculate_speed(self, input_count):
         if input_count <= 0:
             return 0.0
-        speed = 19.44 / (1 + math.exp(-0.18 * (input_count - 25)))
-        print(f"Calculated speed for input_count={input_count}: {speed:.2f} m/s")
+        speed = (19.44 / (1 + math.exp(-0.18 * (input_count - 25)))) / 10.0
+        print(f"Calculated speed for input_count={input_count}: {speed:.2f} units/s")
         return speed
 
     def fetch_data(self):
@@ -104,11 +104,14 @@ class GameServer:
                 data = response_data.json().get("data")
                 if data:
                     self.state.updateData(data)
-                    # 실시간 시뮬레이터 위치 반영
-                    self.character.position = Vector(self.state.player_pos["x"], self.state.player_pos["z"])
-                    self.target.position = Vector(self.state.enemy_pos["x"], self.state.enemy_pos["z"])
-                    print(f"Data fetched: Player Pos={self.character.position}, Target Pos={self.target.position}, Source=/get_data")
-                    return True
+                    if self.state.has_valid_data:
+                        # Only update target and orientation, keep computed position
+                        self.target.position = Vector(self.state.enemy_pos["x"], self.state.enemy_pos["z"])
+                        self.target.orientation = math.radians(self.state.enemy_body_angle)
+                        # Sync orientation with simulation
+                        self.character.orientation = math.radians(self.state.player_body_angle)
+                        print(f"Data fetched: Player Pos={self.character.position}, Orientation={math.degrees(self.character.orientation)} deg, Target Pos={self.target.position}, Source=/get_data")
+                        return True
             print("No valid data available.")
             return False
         except requests.exceptions.RequestException as e:
@@ -117,15 +120,15 @@ class GameServer:
 
     def steering_to_move_command(self, steering, character):
         if steering is None or not self.state.has_valid_data:
-            self.input_count_w = 0
-            self.current_speed = 0.0
+            self.input_count_w = max(0, self.input_count_w - 1)
+            self.current_speed = self.calculate_speed(self.input_count_w)
             print("No steering or invalid data, command: STOP")
             return "STOP"
 
         linear_speed = steering.linear.length()
-        if linear_speed < 0.1:
-            self.input_count_w = 0
-            self.current_speed = 0.0
+        if linear_speed < 0.01:
+            self.input_count_w = max(0, self.input_count_w - 1)
+            self.current_speed = self.calculate_speed(self.input_count_w)
             print("Linear speed too low, command: STOP")
             return "STOP"
 
@@ -137,16 +140,16 @@ class GameServer:
         angle = math.acos(dot_product)
         print(f"Direction angle: {math.degrees(angle):.2f} degrees")
 
-        if abs(angle) > math.radians(60):
+        cross_product = current_direction.x * target_direction.y - current_direction.y * target_direction.x
+        if abs(angle) > math.radians(10):  # tightened threshold
             self.input_count_w = max(0, self.input_count_w - 1)
-            cross_product = current_direction.x * target_direction.y - current_direction.y * target_direction.x
-            command = "A" if cross_product > 0 else "D"
-            print(f"Rotating, command: {command}, angle: {math.degrees(angle):.2f}")
+            command = "D" if cross_product > 0 else "A"
+            print(f"Rotating, command: {command}, angle: {math.degrees(angle):.2f}, cross: {cross_product:.4f}")
             return command
 
         self.input_count_w += 1
         self.current_speed = self.calculate_speed(self.input_count_w)
-        command = "W" if angle < math.radians(90) else "S"
+        command = "W" if abs(angle) < math.radians(90) else "S"
         print(f"Moving, command: {command}, speed: {self.current_speed:.2f}")
         return command
 
@@ -171,13 +174,15 @@ class GameServer:
                     self.state.player_pos["z"] = self.character.position.y
                     print(f"Updated position: {self.character.position}, velocity: {self.character.velocity}")
                 elif move_command == "A":
-                    self.character.orientation += self.max_rotation_per_step
-                    self.character.velocity = Vector(0, 0)
-                    print(f"Rotated left, orientation: {self.character.orientation:.2f}")
-                elif move_command == "D":
                     self.character.orientation -= self.max_rotation_per_step
                     self.character.velocity = Vector(0, 0)
-                    print(f"Rotated right, orientation: {self.character.orientation:.2f}")
+                    self.state.player_body_angle = math.degrees(self.character.orientation) % 360
+                    print(f"Rotated counter-clockwise, orientation: {math.degrees(self.character.orientation):.2f} deg")
+                elif move_command == "D":
+                    self.character.orientation += self.max_rotation_per_step
+                    self.character.velocity = Vector(0, 0)
+                    self.state.player_body_angle = math.degrees(self.character.orientation) % 360
+                    print(f"Rotated clockwise, orientation: {math.degrees(self.character.orientation):.2f} deg")
                 else:
                     self.character.velocity = Vector(0, 0)
                     print("Stopped, velocity: 0")
@@ -185,8 +190,8 @@ class GameServer:
                 print(f"Time: {self.state.time_value:.1f}, "
                       f"Player Pos: {self.character.position}, "
                       f"Target Pos: {self.target.position}, "
-                      f"Speed: {self.current_speed:.2f} m/s, "
-                      f"Orientation: {self.character.orientation:.2f} rad, "
+                      f"Speed: {self.current_speed:.2f} units/s, "
+                      f"Orientation: {math.degrees(self.character.orientation):.2f} deg, "
                       f"Move Command: {move_command}")
             else:
                 self.shared_key_value.set_key_value(self.last_command)
