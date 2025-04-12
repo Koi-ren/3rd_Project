@@ -1,4 +1,3 @@
-# gameAI.py
 import math
 
 class Vector:
@@ -86,7 +85,7 @@ class Seek(DynamicSteeringBehavior):
         result.angular = 0
         return result
 
-class SeekAndArrive(DynamicSteeringBehavior):
+class Arrive(DynamicSteeringBehavior):
     def __init__(self, character, target, maxAcceleration, maxSpeed, targetRadius, slowRadius, timeToTarget=0.1):
         super().__init__(character, maxAcceleration)
         self.target = target
@@ -103,15 +102,21 @@ class SeekAndArrive(DynamicSteeringBehavior):
         if distance < self.targetRadius:
             return None
 
-        targetSpeed = self.maxSpeed
-        if distance <= self.slowRadius:
+        if distance > self.slowRadius:
+            targetSpeed = self.maxSpeed
+        else:
             targetSpeed = self.maxSpeed * distance / self.slowRadius
 
         targetVelocity = direction
         targetVelocity.normalize()
         targetVelocity *= targetSpeed
 
-        result.linear = targetVelocity
+        result.linear = (targetVelocity - self.character.velocity) / self.timeToTarget
+
+        if result.linear.length() > self.maxAcceleration:
+            result.linear.normalize()
+            result.linear *= self.maxAcceleration
+
         result.angular = 0
-        print(f"Steering: direction={direction}, distance={distance:.2f}, targetSpeed={targetSpeed:.2f}, linear={result.linear}")
+        print(f"Arrive: distance={distance:.2f}, targetSpeed={targetSpeed:.2f}, linear={result.linear}")
         return result
