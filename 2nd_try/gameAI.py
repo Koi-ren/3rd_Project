@@ -14,9 +14,12 @@ class Vector:
     def __mul__(self, scalar):
         return Vector(self.x * scalar, self.y * scalar)
 
+    def __truediv__(self, scalar):
+        return Vector(self.x / scalar, self.y / scalar)
+
     def length(self):
         return math.sqrt(self.x**2 + self.y**2)
-
+    
     def normalize(self):
         length = self.length()
         if length > 0:
