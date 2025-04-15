@@ -83,20 +83,22 @@ class Ground:
         global slowRadius, targetRadius, timeToTarget, maxSpeed, max_x_bounds, max_z_bounds
         self.state = GameState()
         self.shared_key_value = sharedKeyValue
-        self.shared_goal__position = sharedGoalPosition
-        # 아군, 적군 초기 위치 설정 - 차후 타겟 좌표는 goalPosition으로 대체할 것임
+        self.shared_goal_position = sharedGoalPosition  # 오타 수정
         self.character = Kinematic(position=Vector(593.5, 272.3), orientation=0.0)
         self.target = Kinematic(position=Vector(1354.6, 2768.7), orientation=0.0)
-        # 맵 크기 제한 설정
         self.map_bounds = (0, max_x_bounds, 0, max_z_bounds)
         self.input_count_w = 0
         self.input_count_a = 0
-        self.theta = Ground.calculate_bearing(self.state.player_pos["x"], self.state.player_pos["z"], 
-                                         self.shared_goal__position.get_goal_position["x"], self.shared_goal__position.get_goal_position["z"])
-        # 이동할 위치의 방위각
-        self.nono, self.diff_theta = Ground.calculate_rotation(self.state.player_body_angle, self.theta)
-        self.shared_key_value.set_key_value("STOP")        
-        self.arrive= Arrive(
+        goal = self.shared_goal_position.get_goal_position()
+        self.theta = Ground.calculate_bearing(
+            self.state.player_pos["x"], self.state.player_pos["z"], 
+            goal["x"], goal["z"]
+        )
+        self.rotation_direction, self.diff_theta = Ground.calculate_rotation(
+            self.state.player_body_angle, self.theta
+        )
+        self.shared_key_value.set_key_value({"move": "STOP", "weight": 1.0})
+        self.arrive = Arrive(
             diff_theta=self.diff_theta,
             distance=self.state.distance,
             maxSpeed=maxSpeed,
