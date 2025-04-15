@@ -18,6 +18,22 @@ class SharedKeyValue:
 
     def get_key_value(self):
         return self.value
+    
+class SharedGoalPosition:
+    def __init__(self):
+        self.x = None
+        self.y = None
+        self.z = None
+
+    def set_goal_position(self, goal):
+        self.x = goal["x"]
+        self.y = goal["y"]
+        self.z = goal["z"]
+
+    def get_goal_position(self):
+        return self
+
 
 sharedData = SharedData()
 sharedKeyValue = SharedKeyValue()
+sharedGoalPosition = SharedGoalPosition()
