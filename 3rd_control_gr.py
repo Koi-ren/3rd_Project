@@ -1,21 +1,22 @@
-# control.py
-import math, requests, time
+import math
+import requests
+import time
 from utils import sharedKeyValue, sharedGoalPosition
 from gameAI import Vector, Kinematic, Arrive
 
-global slowRadius, targetRadius, timeToTarget, maxSpeed, max_x_bounds, max_z_bounds
-
-# 감속 반경 설정
-slowRadius = 100.0
-# 도착 반경 설정
-targetRadius = 10.0
-# 목표 속도 도달 시점점
-timeToTarget = 0.4
-# 최고 속도(70km/h, 코드 내에선 m/s 단위 사용) 가중치 제한(0~1)
-maxSpeed = 0.5
-# 맵크기 제한(m이자 좌표값값)
-max_x_bounds = 300
-max_z_bounds = 300
+class InitState:
+    def __init__(self):
+        # 감속 반경 설정
+        self.slowRadius = 100.0
+        # 도착 반경 설정
+        self.targetRadius = 10.0
+        # 목표 속도 도달 시점
+        self.timeToTarget = 0.4
+        # 최고 속도(70km/h, 코드 내에선 m/s 단위 사용) 가중치 제한(0~1)
+        self.maxSpeed = 0.5
+        # 맵 크기 제한(m이자 좌표값)
+        self.max_x_bounds = 300
+        self.max_z_bounds = 300
 
 class GameState:
     def __init__(self):
@@ -78,45 +79,41 @@ class GameState:
                 f"Enemy Pos: ({self.enemy_pos['x']}, {self.enemy_pos['z']}), "
                 f"Player Body Angle: {self.player_body_angle} deg")
 
-class Ground:
+class Ground(InitState):
     def __init__(self):
-        global slowRadius, targetRadius, timeToTarget, maxSpeed, max_x_bounds, max_z_bounds
-        self.state = GameState()
+        super().__init__()  # InitState의 __init__ 호출
+        self.state = GameState()  # GameState 초기화
         self.shared_key_value = sharedKeyValue
-        self.shared_goal_position = sharedGoalPosition  # 오타 수정
+        self.shared_goal_position = sharedGoalPosition
         self.character = Kinematic(position=Vector(593.5, 272.3), orientation=0.0)
         self.target = Kinematic(position=Vector(1354.6, 2768.7), orientation=0.0)
-        self.map_bounds = (0, max_x_bounds, 0, max_z_bounds)
+        self.map_bounds = (0, self.max_x_bounds, 0, self.max_z_bounds)
         self.input_count_w = 0
         self.input_count_a = 0
         goal = self.shared_goal_position.get_goal_position()
-        self.theta = Ground.calculate_bearing(
+        self.theta = self.calculate_bearing(
             self.state.player_pos["x"], self.state.player_pos["z"], 
             goal["x"], goal["z"]
         )
-        self.rotation_direction, self.diff_theta = Ground.calculate_rotation(
+        self.rotation_direction, self.diff_theta = self.calculate_rotation(
             self.state.player_body_angle, self.theta
         )
         self.shared_key_value.set_key_value({"move": "STOP", "weight": 1.0})
         self.arrive = Arrive(
             diff_theta=self.diff_theta,
             distance=self.state.distance,
-            maxSpeed=maxSpeed,
-            targetRadius=targetRadius,
-            slowRadius=slowRadius
+            maxSpeed=self.maxSpeed,
+            targetRadius=self.targetRadius,
+            slowRadius=self.slowRadius
         )
 
+    @staticmethod
     def calculate_rotation(current_bearing, target_bearing):
-        # 각도 차이 계산
         diff = target_bearing - current_bearing
-        
-        # 각도를 -180 ~ 180 범위로 정규화
         while diff > 180:
             diff -= 360
         while diff < -180:
             diff += 360
-        
-        # 회전 방향과 각도 결정
         if diff == 0:
             return "회전 불필요", 0
         elif diff > 0:
@@ -125,21 +122,15 @@ class Ground:
         else:
             direction = "반시계방향"
             angle = -diff
-            
         return direction, angle
 
+    @staticmethod
     def calculate_bearing(x1, z1, x2, z2):
-        # 상대 좌표 계산
         delta_x = x2 - x1
         delta_z = z2 - z1
-        
-        # 방위각 계산 (라디안 -> 도)
         theta = math.atan2(delta_z, delta_x) * (180 / math.pi)
-        
-        # 음수 각도를 0~360도 범위로 변환
         if theta < 0:
             theta += 360
-            
         return theta
 
     def fetch_data(self):
@@ -147,10 +138,11 @@ class Ground:
             response_data = requests.get("http://localhost:5000/get_data", timeout=0.5)
             if response_data.status_code == 200:
                 data = response_data.json().get("data")
+                goal = self.shared_goal_position.get_goal_position()
                 self.target.position = Vector(
-                    self.shared_goal__position["x"],
-                    self.shared_goal__position["z"]
-                    )
+                    goal["x"],
+                    goal["z"]
+                )
                 if data:
                     self.state.updateData(data)
                     if self.state.has_valid_data:
@@ -162,24 +154,26 @@ class Ground:
                         speed = self.state.player_speed
                         if speed > 0:
                             angle_rad = math.radians(self.state.player_body_angle)
-                            # 속도의 벡터화화
                             self.character.velocity = Vector(
                                 speed * math.cos(angle_rad),
                                 speed * math.sin(angle_rad)
-                            )                        
+                            )
                         else:
-                            self.character.velocity = Vector(0, 0)    
-            print("No valid data available.")
-            return False
-        
+                            self.character.velocity = Vector(0, 0)
+            else:
+                print("No valid data available.")
+                return False
         except requests.exceptions.RequestException as e:
             print(f"Error fetching data: {e}")
             return False
+        return True
         
     def steering_to_move_command(self):
-        RotationKey, targetRotationSpeed = self.arrive.getSteering
-        # 이거 왜 객체로 안뜨냐 씨잇팔
-        targetSpeed = self.arrive.getSpeed
-        if targetSpeed == 0: self.shared_key_value.set_key_value({"move": "STOP"})
-        if RotationKey == None: self.shared_key_value.set_key_value({"move": "W", "weight": targetSpeed})
-        else: self.shared_key_value.set_key_value({"move": RotationKey, "weight": targetRotationSpeed}, {"move": "W", "weight": targetSpeed})
+        RotationKey, targetRotationSpeed = self.arrive.getSteering()
+        targetSpeed = self.arrive.getSpeed()
+        if targetSpeed == 0:
+            self.shared_key_value.set_key_value({"move": "STOP", "weight": 1.0})
+        elif RotationKey is None:
+            self.shared_key_value.set_key_value({"move": "W", "weight": targetSpeed})
+        else:
+            self.shared_key_value.set_key_value({"move": RotationKey, "weight": targetRotationSpeed})

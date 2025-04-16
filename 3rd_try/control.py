@@ -1,45 +1,47 @@
-# control.py
-import math, requests, time
-from utils import sharedKeyValue, sharedGoalPosition
+import math, time, logging
 from gameAI import Vector, Kinematic, Arrive
+from utils import sharedData, sharedKeyValue, sharedGoalPosition
 
-global slowRadius, targetRadius, timeToTarget, maxSpeed, max_x_bounds, max_z_bounds
+logging.basicConfig(
+    filename='C:/Users/acorn/Desktop/project/3rd_Project/3rd_try/control.log',
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    filemode='w'
+)
 
-# 감속 반경 설정
-slowRadius = 100.0
-# 도착 반경 설정
-targetRadius = 10.0
-# 목표 속도 도달 시점점
-timeToTarget = 0.4
-# 최고 속도(70km/h, 코드 내에선 m/s 단위 사용) 가중치 제한(0~1)
-maxSpeed = 0.5
-# 맵크기 제한(m이자 좌표값값)
-max_x_bounds = 300
-max_z_bounds = 300
+class InitState:
+    def __init__(self):
+        self.slowRadius = 50.0
+        self.targetRadius = 5.0
+        self.maxSpeed = 19.44
+        self.max_x_bounds = 300
+        self.max_z_bounds = 300
 
 class GameState:
     def __init__(self):
         self.time_value = 0.0
         self.distance = 0.0
         self.key = None
-        self.player_pos = {"x": 0.0, "y": 0.0, "z": 0.0}
+        self.player_pos = {"x": 60.0, "y": 8.0, "z": 27.23}
         self.player_speed = 0.0
-        self.player_health = 0.0
+        self.player_health = 100.0
         self.player_turret_angle = 0.0
         self.player_body_angle = 0.0
-        self.enemy_pos = {"x": 0.0, "y": 0.0, "z": 0.0}
+        self.enemy_pos = {"x": 135.46, "y": 8.6, "z": 276.87}
         self.enemy_speed = 0.0
-        self.enemy_health = 0.0
+        self.enemy_health = 100.0
         self.enemy_turret_angle = 0.0
         self.enemy_body_angle = 0.0
-        self.has_valid_data = False
-        self.last_update_time = 0.0
+        self.lidar_points = []
+        self.has_valid_data = True
+        self.last_update_time = -float('inf')
 
     def updateData(self, data):
         try:
             new_time = data.get("time", self.time_value)
-            if new_time <= self.last_update_time:
-                print("Skipping stale data")
+            if new_time < self.last_update_time - 1.0:
+                logging.warning(f"Skipping stale data: time={new_time}")
+                print(f"Skipping stale data: time={new_time}")
                 return
             self.time_value = new_time
             self.last_update_time = new_time
@@ -49,10 +51,15 @@ class GameState:
             self.player_pos["x"] = player_pos.get("x", self.player_pos["x"])
             self.player_pos["y"] = player_pos.get("y", self.player_pos["y"])
             self.player_pos["z"] = player_pos.get("z", self.player_pos["z"])
+            logging.debug(f"Position updated: {self.player_pos}")
+            print(f"Position updated: {self.player_pos}")
+            
             self.player_speed = data.get("playerSpeed", self.player_speed)
             self.player_health = data.get("playerHealth", self.player_health)
             self.player_turret_angle = data.get("playerTurretX", self.player_turret_angle)
             self.player_body_angle = data.get("playerBodyX", self.player_body_angle)
+            logging.debug(f"Player body angle updated: {self.player_body_angle}")
+            print(f"Player body angle updated: {self.player_body_angle}")
             
             enemy_pos = data.get("enemyPos", {})
             self.enemy_pos["x"] = enemy_pos.get("x", self.enemy_pos["x"])
@@ -62,10 +69,13 @@ class GameState:
             self.enemy_health = data.get("enemyHealth", self.enemy_health)
             self.enemy_turret_angle = data.get("enemyTurretX", self.enemy_turret_angle)
             self.enemy_body_angle = data.get("enemyBodyX", self.enemy_body_angle)
+            self.lidar_points = data.get("lidarPoints", self.lidar_points)
             
-            self.has_valid_data = bool(player_pos and enemy_pos)
-            print(f"Updated GameState: {self}")
+            self.has_valid_data = True
+            logging.info(f"Updated GameState: time={self.time_value}, player_pos={self.player_pos}, body_angle={self.player_body_angle}")
+            print(f"Updated GameState: time={self.time_value}, player_pos={self.player_pos}, body_angle={self.player_body_angle}")
         except Exception as e:
+            logging.error(f"Error updating GameState: {e}")
             print(f"Error updating GameState: {e}")
             self.has_valid_data = False
 
@@ -78,106 +88,148 @@ class GameState:
                 f"Enemy Pos: ({self.enemy_pos['x']}, {self.enemy_pos['z']}), "
                 f"Player Body Angle: {self.player_body_angle} deg")
 
-class Ground:
+class Ground(InitState):
     def __init__(self):
-        global slowRadius, targetRadius, timeToTarget, maxSpeed, max_x_bounds, max_z_bounds
+        super().__init__()
         self.state = GameState()
         self.shared_key_value = sharedKeyValue
-        self.shared_goal__position = sharedGoalPosition
-        # 아군, 적군 초기 위치 설정 - 차후 타겟 좌표는 goalPosition으로 대체할 것임
-        self.character = Kinematic(position=Vector(593.5, 272.3), orientation=0.0)
-        self.target = Kinematic(position=Vector(1354.6, 2768.7), orientation=0.0)
-        # 맵 크기 제한 설정
-        self.map_bounds = (0, max_x_bounds, 0, max_z_bounds)
+        self.shared_goal_position = sharedGoalPosition
+        self.character = Kinematic(position=Vector(60.0, 27.23))
+        self.target = Kinematic(position=Vector(135.46, 276.87))
+        self.map_bounds = (0, self.max_x_bounds, 0, self.max_z_bounds)
         self.input_count_w = 0
         self.input_count_a = 0
-        self.theta = Ground.calculate_bearing(self.state.player_pos["x"], self.state.player_pos["z"], 
-                                         self.shared_goal__position.get_goal_position["x"], self.shared_goal__position.get_goal_position["z"])
-        # 이동할 위치의 방위각
-        self.nono, self.diff_theta = Ground.calculate_rotation(self.state.player_body_angle, self.theta)
-        self.shared_key_value.set_key_value("STOP")        
-        self.arrive= Arrive(
-            diff_theta=self.diff_theta,
-            distance=self.state.distance,
-            maxSpeed=maxSpeed,
-            targetRadius=targetRadius,
-            slowRadius=slowRadius
-        )
+        self.last_command = {"move": "STOP", "weight": 1.0}
 
-    def calculate_rotation(current_bearing, target_bearing):
-        # 각도 차이 계산
+    def calculate_rotation(self, current_bearing, target_bearing):
         diff = target_bearing - current_bearing
-        
-        # 각도를 -180 ~ 180 범위로 정규화
         while diff > 180:
             diff -= 360
         while diff < -180:
             diff += 360
-        
-        # 회전 방향과 각도 결정
-        if diff == 0:
-            return "회전 불필요", 0
+        if abs(diff) < 0.5:
+            direction = "NONE"
+            angle = 0
         elif diff > 0:
-            direction = "시계방향"
+            direction = "D"
             angle = diff
         else:
-            direction = "반시계방향"
+            direction = "A"
             angle = -diff
-            
+        logging.debug(f"Rotation: current={current_bearing}, target={target_bearing}, diff={diff}, direction={direction}")
+        print(f"Rotation: current={current_bearing}, target={target_bearing}, diff={diff}, direction={direction}")
         return direction, angle
 
-    def calculate_bearing(x1, z1, x2, z2):
-        # 상대 좌표 계산
+    def calculate_bearing(self, x1, z1, x2, z2):
         delta_x = x2 - x1
         delta_z = z2 - z1
-        
-        # 방위각 계산 (라디안 -> 도)
         theta = math.atan2(delta_z, delta_x) * (180 / math.pi)
-        
-        # 음수 각도를 0~360도 범위로 변환
         if theta < 0:
             theta += 360
-            
         return theta
 
     def fetch_data(self):
+        logging.debug("Fetching data...")
+        data = sharedData.get_data()
+        if not data:
+            logging.warning("No valid data available, using defaults.")
+            print("No valid data available, using defaults.")
+            return False
         try:
-            response_data = requests.get("http://localhost:5000/get_data", timeout=0.5)
-            if response_data.status_code == 200:
-                data = response_data.json().get("data")
-                self.target.position = Vector(
-                    self.shared_goal__position["x"],
-                    self.shared_goal__position["z"]
+            self.state.updateData(data)
+            goal = self.shared_goal_position.get_goal_position()
+            logging.debug(f"Goal fetched: {goal}")
+            self.target.position = Vector(goal["x"], goal["z"])
+            if self.state.has_valid_data:
+                self.character.position = Vector(
+                    self.state.player_pos["x"],
+                    self.state.player_pos["z"]
+                )
+                self.character.orientation = math.radians(self.state.player_body_angle)
+                speed = self.state.player_speed
+                if speed > 0:
+                    angle_rad = math.radians(self.state.player_body_angle)
+                    self.character.velocity = Vector(
+                        speed * math.cos(angle_rad),
+                        speed * math.sin(angle_rad)
                     )
-                if data:
-                    self.state.updateData(data)
-                    if self.state.has_valid_data:
-                        self.character.position = Vector(
-                            self.state.player_pos["x"],
-                            self.state.player_pos["z"]
-                        )
-                        self.character.orientation = math.radians(self.state.player_body_angle)
-                        speed = self.state.player_speed
-                        if speed > 0:
-                            angle_rad = math.radians(self.state.player_body_angle)
-                            # 속도의 벡터화화
-                            self.character.velocity = Vector(
-                                speed * math.cos(angle_rad),
-                                speed * math.sin(angle_rad)
-                            )                        
-                        else:
-                            self.character.velocity = Vector(0, 0)    
-            print("No valid data available.")
+                else:
+                    self.character.velocity = Vector(0, 0)
+                self.state.distance = math.sqrt(
+                    (goal["x"] - self.state.player_pos["x"])**2 +
+                    (goal["z"] - self.state.player_pos["z"])**2
+                )
+                self.theta = self.calculate_bearing(
+                    self.state.player_pos["x"], self.state.player_pos["z"],
+                    goal["x"], goal["z"]
+                )
+                rotation_direction, diff_theta = self.calculate_rotation(
+                    self.state.player_body_angle, self.theta
+                )
+                self.arrive = Arrive(
+                    diff_theta=diff_theta,
+                    distance=self.state.distance,
+                    maxSpeed=self.maxSpeed,
+                    targetRadius=self.targetRadius,
+                    slowRadius=self.slowRadius
+                )
+                logging.info(f"Fetched data: goal={goal}, distance={self.state.distance}, theta={self.theta}, body_angle={self.state.player_body_angle}, rotation_direction={rotation_direction}, diff_theta={diff_theta}")
+                print(f"Fetched data: goal={goal}, distance={self.state.distance}, theta={self.theta}, body_angle={self.state.player_body_angle}, rotation_direction={rotation_direction}, diff_theta={diff_theta}")
+                return True
+        except Exception as e:
+            logging.error(f"Error processing data: {e}")
+            print(f"Error processing data: {e}")
             return False
-        
-        except requests.exceptions.RequestException as e:
-            print(f"Error fetching data: {e}")
-            return False
-        
+
     def steering_to_move_command(self):
-        RotationKey, targetRotationSpeed = self.arrive.getSteering
-        # 이거 왜 객체로 안뜨냐 씨잇팔
-        targetSpeed = self.arrive.getSpeed
-        if targetSpeed == 0: self.shared_key_value.set_key_value({"move": "STOP"})
-        if RotationKey == None: self.shared_key_value.set_key_value({"move": "W", "weight": targetSpeed})
-        else: self.shared_key_value.set_key_value({"move": RotationKey, "weight": targetRotationSpeed}, {"move": "W", "weight": targetSpeed})
+        try:
+            RotationKey, targetRotationSpeed = self.arrive.getSteering()
+            targetSpeed = self.arrive.getSpeed()
+            logging.debug(f"Steering: RotationKey={RotationKey}, Speed={targetSpeed}, Weight={targetRotationSpeed}")
+            print(f"Steering: RotationKey={RotationKey}, Speed={targetSpeed}, Weight={targetRotationSpeed}")
+            if targetSpeed < 0.1:
+                command = {"move": "STOP", "weight": 1.0}
+            elif RotationKey == "NONE":
+                weight = min(targetSpeed / self.maxSpeed, 1.0)
+                if weight < 0.1:
+                    weight = 0.1
+                command = {"move": "W", "weight": weight}
+                expected_dx = math.cos(math.radians(self.state.player_body_angle))
+                expected_dz = math.sin(math.radians(self.state.player_body_angle))
+                target_dx = (self.target.position.x - self.character.position.x) / self.state.distance
+                target_dz = (self.target.position.y - self.character.position.y) / self.state.distance
+                logging.debug(f"Move direction: expected=({expected_dx:.3f}, {expected_dz:.3f}), target=({target_dx:.3f}, {target_dz:.3f})")
+                print(f"Move direction: expected=({expected_dx:.3f}, {expected_dz:.3f}), target=({target_dx:.3f}, {target_dz:.3f})")
+            else:
+                command = {"move": RotationKey, "weight": targetRotationSpeed}
+            self.last_command = command
+            self.shared_key_value.set_key_value(command)
+            logging.info(f"Command stored: {command}")
+            print(f"Command stored: {command}")
+            return command
+        except Exception as e:
+            logging.error(f"Error in steering_to_move_command: {e}")
+            print(f"Error in steering_to_move_command: {e}")
+            return self.last_command
+
+    def run(self):
+        logging.info("Starting Ground.run")
+        print("Starting Ground.run")
+        while True:
+            try:
+                if self.fetch_data():
+                    command = self.steering_to_move_command()
+                else:
+                    goal = self.shared_goal_position.get_goal_position()
+                    if goal and self.state.has_valid_data:
+                        command = {"move": "W", "weight": 0.5}
+                    else:
+                        command = self.last_command
+                    self.shared_key_value.set_key_value(command)
+                    logging.warning(f"Using fallback command: {command}")
+                    print(f"Using fallback command: {command}")
+                time.sleep(0.1)
+            except Exception as e:
+                logging.error(f"Error in Ground.run: {e}")
+                print(f"Error in Ground.run: {e}")
+                time.sleep(1.0)

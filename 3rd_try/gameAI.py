@@ -1,49 +1,71 @@
-# gameAI.py
 import math
+import logging
+
+logging.basicConfig(
+    filename='C:/Users/acorn/Desktop/project/3rd_Project/3rd_try/gameAI.log',
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    filemode='w'
+)
 
 class Vector:
-    def __init__(self, x=0.0, y=0.0):
+    def __init__(self, x, y):
         self.x = x
         self.y = y
-    
-    def length(self): return math.sqrt(self.x**2 + self.y**2)
+
+    def __add__(self, other):
+        return Vector(self.x + other.x, self.y + other.y)
+
+    def __sub__(self, other):
+        return Vector(self.x - other.x, self.y - other.y)
+
+    def __mul__(self, scalar):
+        return Vector(self.x * scalar, self.y * scalar)
+
+    def magnitude(self):
+        return math.sqrt(self.x**2 + self.y**2)
 
     def normalize(self):
-        length = self.length()
-        if length > 0:
-            self.x /= length
-            self.y /= length
-        return self
-    
+        mag = self.magnitude()
+        if mag == 0:
+            return Vector(0, 0)
+        return Vector(self.x / mag, self.y / mag)
+
 class Kinematic:
-    def __init__(self, position=Vector(), velocity=0.0, orientation=0.0):
-        self.position = position
-        self.velocity = velocity
+    def __init__(self, position=None, orientation=0.0, velocity=None, rotation=0.0):
+        self.position = position if position is not None else Vector(0, 0)
         self.orientation = orientation
+        self.velocity = velocity if velocity is not None else Vector(0, 0)
+        self.rotation = rotation
 
 class Arrive:
     def __init__(self, diff_theta, distance, maxSpeed, targetRadius, slowRadius):
         self.diff_theta = diff_theta
         self.distance = distance
-        self.maxSpeed=maxSpeed
+        self.maxSpeed = maxSpeed
         self.targetRadius = targetRadius
         self.slowRadius = slowRadius
-      
-    def getSpeed(self):
-        if self.distance > self.slowRadius: return {"move": "W", "weight": 1}
-        elif self.distance < self.slowRadius:
-            slow_area = (self.distance - self.slowRadius)/10
-            if slow_area <= 0.8: targetSpeed = 0.7
-            elif slow_area <= 0.4: targetSpeed = 0.4
-            elif slow_area <= 0.2: targetSpeed = 0.2
-        elif self.distance < self.targetRadius: targetSpeed = 0
-        return targetSpeed
-    
+
     def getSteering(self):
-        if math.sqrt(self.diff_theta**2) <= 180: targetRotationSpeed = 1
-        elif math.sqrt(self.diff_theta**2): targetRotationSpeed = 0.5
-        elif math.sqrt(self.diff_theta**2): targetRotationSpeed = 0.2
-        if self.diff_theta < 0: RotationKey = "a"
-        elif self.diff_theta > 0: RotationKey = "d"
-        elif self.diff_theta == 0: RotationKey = None
-        return RotationKey, targetRotationSpeed
+        logging.debug(f"getSteering: diff_theta={self.diff_theta}")
+        diff_theta_rad = math.radians(self.diff_theta)
+        if abs(self.diff_theta) > 0.5:
+            rotationSpeed = diff_theta_rad
+            maxRotationSpeed = math.radians(90)
+            rotationSpeed = max(min(rotationSpeed, maxRotationSpeed), -maxRotationSpeed)
+            weight = abs(rotationSpeed) / maxRotationSpeed
+            weight = max(0.1, min(1.0, weight))
+            direction = "D" if self.diff_theta > 0 else "A"
+            logging.debug(f"Steering calculated: direction={direction}, weight={weight}, rotationSpeed={rotationSpeed}")
+            print(f"Steering calculated: direction={direction}, weight={weight}, rotationSpeed={rotationSpeed}")
+            return direction, weight
+        logging.debug("Steering: No rotation needed")
+        return "NONE", 0
+
+    def getSpeed(self):
+        if self.distance < self.targetRadius:
+            return 0
+        if self.distance > self.slowRadius:
+            return self.maxSpeed
+        speed = self.maxSpeed * (self.distance / self.slowRadius)
+        return speed
