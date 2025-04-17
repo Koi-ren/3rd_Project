@@ -44,8 +44,7 @@ def info():
             "enemySpeed": data.get("enemySpeed", 0.0),
             "enemyHealth": data.get("enemyHealth", 100.0),
             "enemyTurretX": data.get("enemyTurretX", 0.0),
-            "enemyBodyX": data.get("enemyBodyX", 0.0),
-            "lidarPoints": data.get("lidarPoints", [])
+            "enemyBodyX": data.get("enemyBodyX", 0.0)            
         }
         sharedData.set_data(formatted_data)
         logging.info(f"Stored /info data: time={formatted_data['time']}, playerPos={formatted_data['playerPos']}")
@@ -62,14 +61,20 @@ def get_move():
     if command is None:
         logging.warning("No move command available, returning STOP")
         print("No move command available, returning STOP")
-        return jsonify({"move": "STOP", "weight": 1.0, "timestamp": time.time()}), 200
+        return jsonify({"move": "STOP", "weight": 1.0}), 200
+    
     logging.info(f"Returning move command: {command}")
     print(f"Returning move command: {command}")
-    return jsonify({"move": command["move"], "weight": command["weight"], "timestamp": time.time()}), 200
+    
+    if command["move"] == "STOP":
+        return jsonify({"move": "STOP"}), 200
+    else:
+        weight = round(command["weight"], 1)  # 소숫점 첫째 자리로 반올림
+        return jsonify({"move": command["move"], "weight": weight}), 200
 
 @app.route('/set_destination', methods=['POST'])
 def set_destination():
-    data = request.get_json()
+    data = request.get_json() 
     if not data or "destination" not in data:
         logging.error("Missing destination data")
         print("Error: Missing destination data")

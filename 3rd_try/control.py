@@ -32,7 +32,6 @@ class GameState:
         self.enemy_health = 100.0
         self.enemy_turret_angle = 0.0
         self.enemy_body_angle = 0.0
-        self.lidar_points = []
         self.has_valid_data = True
         self.last_update_time = -float('inf')
 
@@ -69,7 +68,6 @@ class GameState:
             self.enemy_health = data.get("enemyHealth", self.enemy_health)
             self.enemy_turret_angle = data.get("enemyTurretX", self.enemy_turret_angle)
             self.enemy_body_angle = data.get("enemyBodyX", self.enemy_body_angle)
-            self.lidar_points = data.get("lidarPoints", self.lidar_points)
             
             self.has_valid_data = True
             logging.info(f"Updated GameState: time={self.time_value}, player_pos={self.player_pos}, body_angle={self.player_body_angle}")
@@ -88,18 +86,12 @@ class GameState:
                 f"Enemy Pos: ({self.enemy_pos['x']}, {self.enemy_pos['z']}), "
                 f"Player Body Angle: {self.player_body_angle} deg")
 
-class Ground(InitState):
-    def __init__(self):
-        super().__init__()
-        self.state = GameState()
-        self.shared_key_value = sharedKeyValue
-        self.shared_goal_position = sharedGoalPosition
-        self.character = Kinematic(position=Vector(60.0, 27.23))
-        self.target = Kinematic(position=Vector(135.46, 276.87))
-        self.map_bounds = (0, self.max_x_bounds, 0, self.max_z_bounds)
-        self.input_count_w = 0
-        self.input_count_a = 0
-        self.last_command = {"move": "STOP", "weight": 1.0}
+class Navigation:
+    def calculate_bearing(self, x1, z1, x2, z2):
+        delta_x = x2 - x1
+        delta_z = z2 - z1
+        theta = math.atan2(delta_z, delta_x) * (180 / math.pi)
+        return theta + 360 if theta < 0 else theta
 
     def calculate_rotation(self, current_bearing, target_bearing):
         diff = target_bearing - current_bearing
@@ -108,25 +100,30 @@ class Ground(InitState):
         while diff < -180:
             diff += 360
         if abs(diff) < 0.5:
-            direction = "NONE"
-            angle = 0
+            direction, angle = "NONE", 0
         elif diff > 0:
-            direction = "D"
-            angle = diff
+            direction, angle = "D", diff
         else:
-            direction = "A"
-            angle = -diff
+            direction, angle = "A", -diff
         logging.debug(f"Rotation: current={current_bearing}, target={target_bearing}, diff={diff}, direction={direction}")
         print(f"Rotation: current={current_bearing}, target={target_bearing}, diff={diff}, direction={direction}")
         return direction, angle
 
-    def calculate_bearing(self, x1, z1, x2, z2):
-        delta_x = x2 - x1
-        delta_z = z2 - z1
-        theta = math.atan2(delta_z, delta_x) * (180 / math.pi)
-        if theta < 0:
-            theta += 360
-        return theta
+    def calculate_navigation(self, x1, z1, x2, z2, current_bearing):
+        target_bearing = self.calculate_bearing(x1, z1, x2, z2)
+        return self.calculate_rotation(current_bearing, target_bearing)
+
+class Ground(InitState):
+    def __init__(self):
+        super().__init__()
+        self.state = GameState()
+        self.navigation = Navigation()
+        self.shared_key_value = sharedKeyValue
+        self.shared_goal_position = sharedGoalPosition
+        self.character = Kinematic(position=Vector(60.0, 27.23))
+        self.target = Kinematic(position=Vector(135.46, 276.87))
+        self.map_bounds = (0, self.max_x_bounds, 0, self.max_z_bounds)
+        self.last_command = {"move": "STOP", "weight": 1.0}
 
     def fetch_data(self):
         logging.debug("Fetching data...")
@@ -145,7 +142,7 @@ class Ground(InitState):
                     self.state.player_pos["x"],
                     self.state.player_pos["z"]
                 )
-                self.character.orientation = math.radians(self.state.player_body_angle)
+                self.character.orientation = self.state.player_body_angle
                 speed = self.state.player_speed
                 if speed > 0:
                     angle_rad = math.radians(self.state.player_body_angle)
@@ -159,11 +156,11 @@ class Ground(InitState):
                     (goal["x"] - self.state.player_pos["x"])**2 +
                     (goal["z"] - self.state.player_pos["z"])**2
                 )
-                self.theta = self.calculate_bearing(
+                self.theta = self.navigation.calculate_bearing(
                     self.state.player_pos["x"], self.state.player_pos["z"],
                     goal["x"], goal["z"]
                 )
-                rotation_direction, diff_theta = self.calculate_rotation(
+                rotation_direction, diff_theta = self.navigation.calculate_rotation(
                     self.state.player_body_angle, self.theta
                 )
                 self.arrive = Arrive(
@@ -188,7 +185,7 @@ class Ground(InitState):
             logging.debug(f"Steering: RotationKey={RotationKey}, Speed={targetSpeed}, Weight={targetRotationSpeed}")
             print(f"Steering: RotationKey={RotationKey}, Speed={targetSpeed}, Weight={targetRotationSpeed}")
             if targetSpeed < 0.1:
-                command = {"move": "STOP", "weight": 1.0}
+                command = {"move": "STOP"}
             elif RotationKey == "NONE":
                 weight = min(targetSpeed / self.maxSpeed, 1.0)
                 if weight < 0.1:
