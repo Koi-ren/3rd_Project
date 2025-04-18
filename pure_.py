@@ -201,10 +201,10 @@ def a_star(start, goal, obstacles):
 
 @app.route('/get_move', methods=['GET'])
 def get_move():
-    global destination, current_position, current_heading, last_info_time, obstacles
+    global destination, current_position, current_heading, last_info_time
     current_time = time.time()
     waypoints = a_star(current_position, destination, obstacles)
-    print(f"🔍 A* 알고리즘 결과: {waypoints}")
+print(f"🔍 A* 알고리즘 결과: {waypoints}")
     if not destination or not current_position:
         print("🚗 No destination or position, stopping")
         return jsonify({"move": "STOP", "weight": 1.0})
