@@ -4,7 +4,7 @@ import random
 import time
 import numpy as np
 from dataclasses import dataclass
-from typing import Optional, Tuple, Dict
+from typing import Optional, Tuple, Dict, List
 
 app = Flask(__name__)
 
@@ -22,6 +22,7 @@ class NavigationConfig:
     MIN_SPEED: float = 0.1
     SPEED_FACTOR: float = 0.8
     WEIGHT_FACTORS: Dict[str, float] = None
+    WAYPOINT_OFFSET: float = 35
 
     def __post_init__(self):
         if self.WEIGHT_FACTORS is None:
@@ -37,7 +38,15 @@ class NavigationController:
         self.last_steering: float = 0.0
         self.last_update_time: float = time.time()
         self.initial_distance: Optional[float] = None
-  
+        self.waypoints: List[Tuple[float, float]] = [
+            (59, 27),
+            (300 - self.config.WAYPOINT_OFFSET, self.config.WAYPOINT_OFFSET),
+            (300 - self.config.WAYPOINT_OFFSET, 300 - self.config.WAYPOINT_OFFSET),
+            (self.config.WAYPOINT_OFFSET, 300 - self.config.WAYPOINT_OFFSET)
+        ]
+        self.current_waypoint_idx: int = 0
+        self.completed: bool = False  # 경로 완료 여부 추적
+
     def update_position(self, position: str) -> Dict:
         try:
             x, y, z = map(float, position.split(","))
@@ -87,7 +96,7 @@ class NavigationController:
     def _calculate_lookahead(self, distance: float) -> float:
         return min(
             self.config.LOOKAHEAD_MAX,
-            max(self.config.LOOKAHEAD_MIN, distance * 0.5)
+            max(self.config.LOOKAHEAD_MIN, distance * 0.5 + 5.0)
         )
 
     def _calculate_steering(self, curr_x: float, curr_z: float, dest_x: float, dest_z: float, lookahead_distance: float) -> Tuple[float, float]:
@@ -157,16 +166,36 @@ class NavigationController:
         self.current_position = (new_x, new_z)
 
     def get_move(self) -> Dict:
-        if self.current_position is None or self.destination is None:
-            return {"move": "STOP", "weight": 1.0}
+        if self.current_position is None or self.completed:
+            return {"move": "STOP", "weight": 1.0, "current_waypoint": self.current_waypoint_idx, "completed": self.completed}
+
+        if self.destination is None:
+            self.destination = self.waypoints[self.current_waypoint_idx]
 
         curr_x, curr_z = self.current_position
         dest_x, dest_z = self.destination
         distance = math.sqrt((dest_x - curr_x) ** 2 + (dest_z - curr_z) ** 2)
 
+        # 목표 waypoint에 도달하면 다음 waypoint로 전환 또는 종료
         if distance < self.config.TOLERANCE:
-            self.initial_distance = None
-            return {"move": "STOP", "weight": 1.0}
+            if self.current_waypoint_idx == len(self.waypoints) - 1:
+                # 마지막 waypoint 도달 시 종료
+                self.completed = True
+                self.destination = None
+                self.initial_distance = None
+                return {
+                    "move": "STOP",
+                    "weight": 1.0,
+                    "current_waypoint": self.current_waypoint_idx,
+                    "completed": self.completed
+                }
+            else:
+                # 다음 waypoint로 전환
+                self.current_waypoint_idx += 1
+                self.destination = self.waypoints[self.current_waypoint_idx]
+                self.initial_distance = None
+                dest_x, dest_z = self.destination
+                distance = math.sqrt((dest_x - curr_x) ** 2 + (dest_z - curr_z) ** 2)
 
         lookahead_distance = self._calculate_lookahead(distance)
         steering, heading_error = self._calculate_steering(curr_x, curr_z, dest_x, dest_z, lookahead_distance)
@@ -178,7 +207,7 @@ class NavigationController:
 
         commands = [cmd for cmd, w in dynamic_weights.items() if w > 0]
         if not commands:
-            return {"move": "STOP", "weight": 1.0}
+            return {"move": "STOP", "weight": 1.0, "current_waypoint": self.current_waypoint_idx, "completed": self.completed}
 
         weights = [dynamic_weights[cmd] for cmd in commands]
         chosen_cmd = random.choices(commands, weights=weights, k=1)[0]
@@ -187,7 +216,12 @@ class NavigationController:
         if chosen_cmd:
             self._update_position(speed, chosen_cmd, curr_x, curr_z)
 
-        return {"move": chosen_cmd, "weight": dynamic_weights[chosen_cmd]}
+        return {
+            "move": chosen_cmd,
+            "weight": dynamic_weights[chosen_cmd],
+            "current_waypoint": self.current_waypoint_idx,
+            "completed": self.completed
+        }
 
 # Flask 라우팅
 nav_controller = NavigationController(NavigationConfig())
