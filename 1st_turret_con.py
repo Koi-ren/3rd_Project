@@ -5,11 +5,10 @@ class Vector:
         self.x = x
         self.y = y
 
-    def __add__(self, other): return Vector(self.x + other.x, self.y + other.y)
-    def __sub__(self, other): return Vector(self.x - other.x, self.y - other.y)
-    def __mul__(self, scalar): return Vector(self.x * scalar, self.y * scalar)
+    # 벡터 크기 정하기
     def magnitude(self): return math.sqrt(self.x**2 + self.y**2)
 
+    # 벡터 정규화
     def normalize(self):
         mag = self.magnitude()
         if mag == 0:
@@ -17,9 +16,9 @@ class Vector:
         return Vector(self.x / mag, self.y / mag)
 
 class Initialize:
-    EFFECTIVE_RANGE = 115.8  # Unit: meters
+    EFFECTIVE_MAX_RANGE = 115.8  # Unit: meters
+    EFFECTIVE_MIN_RANGE = 21.002 # Unit: meters
     BULLET_VELOCITY = 42.6  # Unit: meters/second
-    GRAVITATIONAL_ACCELERATION = 9.81  # Unit: meters/second^2
 
     def __init__(self, data=None):
         if data is None:
@@ -35,27 +34,47 @@ class Initialize:
                 "playerTurretY":0
             }
         self.shared_data = data
-        self.tolerance = 3.5  # Unit: degrees; will be dynamically assigned later
+        self.turret_tolerance = 0.0523  # Unit: degrees; will be dynamically assigned later
+        self.barrel_tolerance = 0.0174  # Unit: degrees; will be dynamically assigned later, too
         self.input_key_value = {
             "getRight": "E", "getLeft": "Q",
             "getRise": "R", "getFall": "F", "getShot": "FIRE"
         }
 
+# 평면에서의 탄속 고려려 (42.6 m/s)
 class Ballistics:
     def __init__(self, context):
         self.context = context
 
     def _calculation_of_barrel_angle_by_distance(self):
-        if self.context.shared_data["distance"] <= self.context.EFFECTIVE_RANGE:
-            delta_H = abs(self.context.shared_data["enemyPos"]["y"] - self.context.shared_data["playerPos"]["y"])
-            predict_time = self.context.shared_data["distance"] / self.context.BULLET_VELOCITY
-            barrel_angle = (math.atan(delta_H / self.context.shared_data["distance"]) +
-                            (0.5 * self.context.GRAVITATIONAL_ACCELERATION * predict_time**2) /
-                            self.context.BULLET_VELOCITY)
-            barrel_angle_error = self.context.shared_data["playerTurretY"] - 
-            return barrel_angle, barrel_angle_error
+        # 원 회귀식; y=0.373x2+5.914x+41.24; y: distance, x: barrel_degree
+        # 적과의 거리가 사정거리 내인지 확인할 것것
+        distance = self.context.shared_data["distance"]
+        if self.context.EFFECTIVE_MIN_RANGE <= distance <= self.context.EFFECTIVE_MAX_RANGE:
+            # 포신 각도를 회귀식을 통해 구하기기
+            if not (20.995 <= distance <= 137.68):
+                raise ValueError("Distance is outside the inverse function's domain [20.995, 137.68].")
+
+            # 원 회귀식의 역함수
+            discriminant = 1.492 * distance - 26.564784
+            if discriminant < 0:
+                raise ValueError("Discriminant is negative. No real solutions exist.")
+
+            barrel_angle_deg = (-5.914 + math.sqrt(discriminant)) / 0.746  # In degrees
+            if not (-5.0 + 1e-6 <= barrel_angle_deg <= 10.0 + 1e-6):
+                raise ValueError("Calculated barrel angle is outside the range [-5, 10].")
+
+            # Convert barrel angle to radians (for error calculation)
+            barrel_angle_rad = barrel_angle_deg * math.pi / 180
+
+            # Calculate barrel angle error
+            current_turret_angle_rad = self.context.shared_data["playerTurretY"] * math.pi / 180
+            barrel_angle_error = current_turret_angle_rad - barrel_angle_rad
+            barrel_angle_error = math.atan2(math.sin(barrel_angle_error), math.cos(barrel_angle_error))
+
+            return barrel_angle_rad, barrel_angle_error
         else:
-            return ValueError("Distance exceeds effective range")
+            raise ValueError("Distance exceeds effective range")
 
 class AimingBehavior:
     def __init__(self, context):
@@ -84,21 +103,26 @@ class AimingBehavior:
 class TurretControl:
     def __init__(self, context):
         self.context = context
-        self.previous_playTime = 0
-        self.aimingBehavior = AimingBehavior(context)
-        self.target_vector, self.heading_error, self.barrel_angle = self.aimingBehavior.control_information()
+        self.previous_play_time = 0
+        self.aiming_behavior = AimingBehavior(context)
+        self.target_vector, self.heading_error, self.barrel_angle = self.aiming_behavior.control_information()
 
     def normal_control(self):
-        if self.previous_playTime <= self.context.shared_data["time"]:
-            self.target_vector, self.heading_error, self.barrel_angle, self.barrel_angle_error = self.aimingBehavior.control_information()
+        if self.previous_play_time <= self.context.shared_data["time"]:
+            self.target_vector, self.heading_error, self.barrel_angle, self.barrel_angle_error = self.aiming_behavior.control_information()
             turret_weight = min(max(abs(self.heading_error) / math.pi, 0.5), 1)
             barrel_weight = min(max(abs(self.barrel_angle_error) / math.pi, 0.5), 1)
-            if abs(self.heading_error) > math.radians(self.context.tolerance):
+            if abs(self.heading_error) > self.context.turret_tolerance:
                 direction = "getRight" if self.heading_error > 0 else "getLeft"
                 return self.context.input_key_value[direction], turret_weight
-            elif abs(self.heading_error) <= math.radians(self.context.tolerance) and self.context.shared_data["distance"] <= self.context.EFFECTIVE_RANGE:
-                return self.context.input_key_value["getShot"]
-            self.previous_playTime = self.context.shared_data["time"]
+            elif abs(self.heading_error) <= self.context.turret_tolerance and self.context.EFFECTIVE_MIN_RANGE <= self.context.shared_data["distance"] <= self.context.EFFECTIVE_MAX_RANGE:
+                if abs(self.barrel_angle_error) <= self.context.barrel_tolerance:
+                    direction ="getRise" if self.barrel_angle_error > 0 else "getFall"
+                    return self.context.input_key_value[direction], barrel_weight
+                else:
+                    direction = "getFire"
+                    return self.context.input_key_value[direction]
+            self.previous_play_time = self.context.shared_data["time"]
         return None
 
 if __name__ == "__main__":
