@@ -1,4 +1,5 @@
 import math
+import time
 
 class Vector:
     def __init__(self, x, y):
@@ -65,14 +66,14 @@ class Ballistics:
                 raise ValueError("Calculated barrel angle is outside the range [-5, 10].")
 
             # Convert barrel angle to radians (for error calculation)
-            barrel_angle_rad = barrel_angle_deg * math.pi / 180
+            barrel_angle = barrel_angle_deg * math.pi / 180
 
             # Calculate barrel angle error
             current_turret_angle_rad = self.context.shared_data["playerTurretY"] * math.pi / 180
-            barrel_angle_error = current_turret_angle_rad - barrel_angle_rad
+            barrel_angle_error = current_turret_angle_rad - barrel_angle
             barrel_angle_error = math.atan2(math.sin(barrel_angle_error), math.cos(barrel_angle_error))
 
-            return barrel_angle_rad, barrel_angle_error
+            return barrel_angle, barrel_angle_error
         else:
             raise ValueError("Distance exceeds effective range")
 
@@ -105,7 +106,7 @@ class TurretControl:
         self.context = context
         self.previous_play_time = 0
         self.aiming_behavior = AimingBehavior(context)
-        self.target_vector, self.heading_error, self.barrel_angle = self.aiming_behavior.control_information()
+        self.target_vector, self.heading_error, self.barrel_angle, self.barrel_angle_error = self.aiming_behavior.control_information()
 
     def normal_control(self):
         if self.previous_play_time <= self.context.shared_data["time"]:
@@ -126,8 +127,10 @@ class TurretControl:
         return None
 
 if __name__ == "__main__":
+    print(time.time())
     context = Initialize()
     turret = TurretControl(context)
     print(id(context.shared_data) == id(turret.context.shared_data))
     result = turret.normal_control()
     print(result)
+    print(time.time())
