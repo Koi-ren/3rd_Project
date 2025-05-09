@@ -2,7 +2,7 @@
 import aiohttp
 import asyncio
 from control_1 import GameServer
-from utills import sharedData, sharedKeyValue
+from utils import sharedData, sharedKeyValue
 
 async def run_flask():
     from flask import Flask, request, jsonify
