@@ -20,7 +20,9 @@ class Vector:
 class Initialize:
     EFFECTIVE_MAX_RANGE = 115.8  # Unit: meters
     EFFECTIVE_MIN_RANGE = 21.002 # Unit: meters
-    BULLET_VELOCITY = 42.6  # Unit: meters/second
+    MAX_TOLERANCE = 0.05235988
+    MIN_TOLERANCE=0.01745329
+    
 
     def __init__(self, data=None):
         if data is None:
@@ -36,8 +38,6 @@ class Initialize:
                 "playerTurretY":0
             }
         self.shared_data = data
-        self.turret_tolerance = 0.0110  # Unit: degrees; will be dynamically assigned later
-        self.barrel_tolerance = 0.0110  # Unit: degrees; will be dynamically assigned later, too
         self.input_key_value = {
             "getRight": "E", "getLeft": "Q",
             "getRise": "R", "getFall": "F", "getShot": "FIRE"
@@ -58,7 +58,7 @@ class Ballistics:
                 raise ValueError("Distance is outside the inverse function's domain [20.995, 137.68].")
 
             # 원 회귀식의 역함수
-            discriminant = 1.492 * distance - 26.564784
+            discriminant = 1.492 * distance - 24.564784 # 기존 회기식에 대한 역함수의 상수를를 -26.564784에서 -24.564784로 변경(더 높은 사거리 선정을 위해해)
             if discriminant < 0:
                 raise ValueError("Discriminant is negative. No real solutions exist.")
 
@@ -73,7 +73,7 @@ class Ballistics:
             current_turret_angle_rad = self.context.shared_data["playerTurretY"] * math.pi / 180
             barrel_angle_error = current_turret_angle_rad - barrel_angle
             barrel_angle_error = math.atan2(math.sin(barrel_angle_error), math.cos(barrel_angle_error))
-
+            
             return barrel_angle, barrel_angle_error
         else:
             raise ValueError("Distance exceeds effective range")
@@ -112,6 +112,8 @@ class TurretControl:
         self.context = context
         self.previous_play_time = 0
         self.aiming_behavior = AimingBehavior(context)
+        self.tolerance_calculator = ToleranceCalculator(context)
+        self.tolerance = self.tolerance_calculator.get_tolerance()
         self.target_vector, self.heading_error, self.barrel_angle, self.barrel_angle_error = self.aiming_behavior.control_information()
 
     def normal_control(self):
@@ -119,10 +121,10 @@ class TurretControl:
             if self.previous_play_time < self.context.shared_data["time"]:
                 self.target_vector, self.heading_error, self.barrel_angle, self.barrel_angle_error = self.aiming_behavior.control_information()
                 print(f"🔄 Updated - Heading Error: {self.heading_error}, Barrel Angle Error: {self.barrel_angle_error}")
-                turret_weight = min(max(abs(self.heading_error) / math.pi, 0.5), 1)
-                barrel_weight = min(max(abs(self.barrel_angle_error) / math.pi, 0.5), 1)
+                turret_weight = min(max(abs(self.heading_error) / math.pi, 0.3), 1)
+                barrel_weight = min(max(abs(self.barrel_angle_error) / math.pi, 0.3), 1)
                 print(f"⚖️ Turret Weight: {turret_weight}, Barrel Weight: {barrel_weight}")
-                if abs(self.heading_error) > self.context.turret_tolerance:
+                if abs(self.heading_error) > self.tolerance:
                     direction = "getRight" if self.heading_error > 0 else "getLeft"
                     print(f"🛠️ Command: {direction}, Weight: {turret_weight}")
                     # 시뮬레이션: 방향 업데이트 (예: 1도/초 회전)
@@ -133,9 +135,9 @@ class TurretControl:
                         self.context.shared_data["playerTurretX"] += rotation_speed
                     shared_data.set_data(self.context.shared_data)  # 이제 shared_data 사용 가능
                     return self.context.input_key_value[direction], turret_weight
-                elif abs(self.heading_error) <= self.context.turret_tolerance and self.context.EFFECTIVE_MIN_RANGE <= \
+                elif abs(self.heading_error) <= self.tolerance and self.context.EFFECTIVE_MIN_RANGE <= \
                     self.context.shared_data["distance"] <= self.context.EFFECTIVE_MAX_RANGE:
-                    if abs(self.barrel_angle_error) > self.context.barrel_tolerance:
+                    if abs(self.barrel_angle_error) > self.tolerance:
                         direction = "getRise" if self.barrel_angle_error > 0 else "getFall"
                         print(f"🛠️ Command: {direction}, Weight: {barrel_weight}")
                         return self.context.input_key_value[direction], barrel_weight
@@ -146,6 +148,39 @@ class TurretControl:
                 self.previous_play_time = self.context.shared_data["time"]
             print("⏭️ No update, returning None")
             return None
+
+class ToleranceCalculator:
+    def __init__(self, context):
+        self.context = context
+        self.distance = self.context.shared_data.get("distance")  # 안전한 get 사용
+        self.max_tolerance = self.context.MAX_TOLERANCE  # 0.05235988
+        self.min_tolerance = self.context.MIN_TOLERANCE  # 0.01745329
+        self.max_distance = self.context.EFFECTIVE_MAX_RANGE  # 115.8
+        self.min_distance = self.context.EFFECTIVE_MIN_RANGE  # 21.002
+
+    def _calculate_tolerance(self, distance):
+        if distance < 0:
+            raise ValueError("Distance cannot be negative")
+
+        # 거리 범위에 따라 오차 결정
+        if distance <= self.min_distance:
+            tolerance = self.max_tolerance  # 최소 거리 이하: 최대 오차
+        elif distance >= self.max_distance:
+            tolerance = self.min_tolerance  # 최대 거리 이상: 최소 오차
+        else:
+            # 선형 보간
+            ratio = (self.max_distance - distance) / (self.max_distance - self.min_distance)
+            tolerance = self.min_tolerance + (self.max_tolerance - self.min_tolerance) * ratio
+
+        print(f"🛠️ Calculated Tolerance: {tolerance}")
+        return tolerance
+
+    def get_tolerance(self):
+        if self.distance is None:
+            raise KeyError("Distance key not found in shared_data")
+        if not isinstance(self.distance, (int, float)):
+            raise ValueError("Distance must be a number")
+        return self._calculate_tolerance(self.distance)
 
 if __name__ == "__main__":
     print(time.time())
