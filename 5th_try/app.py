@@ -15,6 +15,7 @@ move_command = []
 # Action commands with weights (15+ variations)
 action_command = []
 
+# Flask 라우트들 (기존 코드 유지)
 @app.route('/detect', methods=['POST'])
 def detect():
     image = request.files.get('image')
@@ -169,15 +170,23 @@ def start():
     return jsonify({"control": ""})
 
 def main():
-    try:
-        app.run(host='0.0.0.0', port=5000)
-        data = shared_data.get_data()
-        context = turret_con.Initialize(data)
-        turret = turret_con.TurretControl(context)
-        result = turret.normal_control()
-        print(result)
-    except Exception as e:
-        print(f"Error in main: {e}")
+    while True:
+        try:
+            data = shared_data.get_data()
+            print(data["time"])  # 데이터 출력
+            context = turret_con.Initialize(data)
+            turret = turret_con.TurretControl(context)
+            result = turret.normal_control()
+            print(result)
+        except Exception as e:
+            print(f"Error in main: {e}")
+        import time
+        time.sleep(0.1)
 
 if __name__ == '__main__':
-    main()
+    # main 함수를 스레드에서 실행
+    main_thread = threading.Thread(target=main, daemon=True)
+    main_thread.start()
+    
+    # Flask 서버 실행
+    app.run(host='0.0.0.0', port=5000)

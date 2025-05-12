@@ -1,5 +1,6 @@
 import math
 import time
+from utils import shared_data
 
 class Vector:
     def __init__(self, x, y):
@@ -31,12 +32,12 @@ class Initialize:
                 "playerSpeed": 0,
                 "time": 0,
                 "enemyBodyX": 0,
-                "playerBodyX": 0,
+                "playerTurretX": 0,
                 "playerTurretY":0
             }
         self.shared_data = data
-        self.turret_tolerance = 0.0523  # Unit: degrees; will be dynamically assigned later
-        self.barrel_tolerance = 0.0174  # Unit: degrees; will be dynamically assigned later, too
+        self.turret_tolerance = 0.0110  # Unit: degrees; will be dynamically assigned later
+        self.barrel_tolerance = 0.0110  # Unit: degrees; will be dynamically assigned later, too
         self.input_key_value = {
             "getRight": "E", "getLeft": "Q",
             "getRise": "R", "getFall": "F", "getShot": "FIRE"
@@ -87,19 +88,24 @@ class AimingBehavior:
             self.context.shared_data["enemyPos"]["x"] - self.context.shared_data["playerPos"]["x"],
             self.context.shared_data["enemyPos"]["z"] - self.context.shared_data["playerPos"]["z"]
         )
+        # print(goal_vector.x, goal_vector.y)
         goal_vector = goal_vector.normalize()
+        print(f"🎯 Goal Vector: ({goal_vector.x}, {goal_vector.y})")  # 목표 벡터 출력
 
-        goal_heading = math.atan2(goal_vector.y, goal_vector.x) - math.pi / 2
-        player_heading_to_radians = self.context.shared_data["playerBodyX"] * math.pi / 180
+        deg =  (math.atan2(goal_vector.x, goal_vector.y))*180/math.pi
+        print("deg: ", deg)
+        goal_heading = (math.atan2(goal_vector.x, goal_vector.y) - math.pi / 2 )+ 1.5707
+        player_heading_to_radians = self.context.shared_data["playerTurretX"] * math.pi / 180
         heading_error = goal_heading - player_heading_to_radians
         heading_error = math.atan2(math.sin(heading_error), math.cos(heading_error))
+        print(f"🧭 Goal Heading: {goal_heading}, Player Heading: {player_heading_to_radians}, Heading Error: {heading_error}")  # 헤딩 정보 출력
 
         return goal_vector, heading_error
 
     def control_information(self):
         goal_vector, heading_error = self._calculate_turret_angle()
         barrel_angle, barrel_angle_error = self.ballistics._calculation_of_barrel_angle_by_distance()
-        return goal_vector, heading_error, barrel_angle, barrel_angle_error
+        return goal_vector, heading_error, barrel_angle, -barrel_angle_error
 
 class TurretControl:
     def __init__(self, context):
@@ -109,22 +115,37 @@ class TurretControl:
         self.target_vector, self.heading_error, self.barrel_angle, self.barrel_angle_error = self.aiming_behavior.control_information()
 
     def normal_control(self):
-        if self.previous_play_time < self.context.shared_data["time"]:
-            self.target_vector, self.heading_error, self.barrel_angle, self.barrel_angle_error = self.aiming_behavior.control_information()
-            turret_weight = min(max(abs(self.heading_error) / math.pi, 0.5), 1)
-            barrel_weight = min(max(abs(self.barrel_angle_error) / math.pi, 0.5), 1)
-            if abs(self.heading_error) > self.context.turret_tolerance:
-                direction = "getRight" if self.heading_error > 0 else "getLeft"
-                return self.context.input_key_value[direction], turret_weight
-            elif abs(self.heading_error) <= self.context.turret_tolerance and self.context.EFFECTIVE_MIN_RANGE <= self.context.shared_data["distance"] <= self.context.EFFECTIVE_MAX_RANGE:
-                if abs(self.barrel_angle_error) <= self.context.barrel_tolerance:
-                    direction ="getRise" if self.barrel_angle_error > 0 else "getFall"
-                    return self.context.input_key_value[direction], barrel_weight
-                else:
-                    direction = "getFire"
-                    return self.context.input_key_value[direction]
-            self.previous_play_time = self.context.shared_data["time"]
-        return None
+            print(f"⏰ Previous Time: {self.previous_play_time}, Current Time: {self.context.shared_data['time']}")
+            if self.previous_play_time < self.context.shared_data["time"]:
+                self.target_vector, self.heading_error, self.barrel_angle, self.barrel_angle_error = self.aiming_behavior.control_information()
+                print(f"🔄 Updated - Heading Error: {self.heading_error}, Barrel Angle Error: {self.barrel_angle_error}")
+                turret_weight = min(max(abs(self.heading_error) / math.pi, 0.5), 1)
+                barrel_weight = min(max(abs(self.barrel_angle_error) / math.pi, 0.5), 1)
+                print(f"⚖️ Turret Weight: {turret_weight}, Barrel Weight: {barrel_weight}")
+                if abs(self.heading_error) > self.context.turret_tolerance:
+                    direction = "getRight" if self.heading_error > 0 else "getLeft"
+                    print(f"🛠️ Command: {direction}, Weight: {turret_weight}")
+                    # 시뮬레이션: 방향 업데이트 (예: 1도/초 회전)
+                    rotation_speed = 1.0  # 도/초
+                    if direction == "getLeft":
+                        self.context.shared_data["playerTurretX"] -= rotation_speed
+                    else:
+                        self.context.shared_data["playerTurretX"] += rotation_speed
+                    shared_data.set_data(self.context.shared_data)  # 이제 shared_data 사용 가능
+                    return self.context.input_key_value[direction], turret_weight
+                elif abs(self.heading_error) <= self.context.turret_tolerance and self.context.EFFECTIVE_MIN_RANGE <= \
+                    self.context.shared_data["distance"] <= self.context.EFFECTIVE_MAX_RANGE:
+                    if abs(self.barrel_angle_error) > self.context.barrel_tolerance:
+                        direction = "getRise" if self.barrel_angle_error > 0 else "getFall"
+                        print(f"🛠️ Command: {direction}, Weight: {barrel_weight}")
+                        return self.context.input_key_value[direction], barrel_weight
+                    else:
+                        direction = "getFire"
+                        print(f"🛠️ Command: {direction}")
+                        return self.context.input_key_value[direction]
+                self.previous_play_time = self.context.shared_data["time"]
+            print("⏭️ No update, returning None")
+            return None
 
 if __name__ == "__main__":
     print(time.time())
