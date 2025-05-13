@@ -20,8 +20,8 @@ class Vector:
 class Initialize:
     EFFECTIVE_MAX_RANGE = 115.8  # Unit: meters
     EFFECTIVE_MIN_RANGE = 21.002 # Unit: meters
-    MAX_TOLERANCE = 0.05235988
-    MIN_TOLERANCE=0.01745329
+    MAX_TOLERANCE = 0.01745329
+    MIN_TOLERANCE=0.00872665
     
 
     def __init__(self, data=None):
@@ -43,14 +43,13 @@ class Initialize:
             "getRise": "R", "getFall": "F", "getShot": "FIRE"
         }
 
-# 평면에서의 탄속 고려려 (42.6 m/s)
 class Ballistics:
     def __init__(self, context):
         self.context = context
 
     def _calculation_of_barrel_angle_by_distance(self):
         # 원 회귀식; y=0.373x2+5.914x+41.24; y: distance, x: barrel_degree
-        # 적과의 거리가 사정거리 내인지 확인할 것것
+        # 적과의 거리가 사정거리 내인지 확인할 것
         distance = self.context.shared_data["distance"]
         if self.context.EFFECTIVE_MIN_RANGE <= distance <= self.context.EFFECTIVE_MAX_RANGE:
             # 포신 각도를 회귀식을 통해 구하기기
@@ -73,6 +72,40 @@ class Ballistics:
             current_turret_angle_rad = self.context.shared_data["playerTurretY"] * math.pi / 180
             barrel_angle_error = current_turret_angle_rad - barrel_angle
             barrel_angle_error = math.atan2(math.sin(barrel_angle_error), math.cos(barrel_angle_error))
+            
+            return barrel_angle, barrel_angle_error
+        else:
+            raise ValueError("Distance exceeds effective range")
+
+    def _calculation_of_barrel_angle_by_distance_with_delta_h(self):
+        # 원 회귀식: theta = 0.373x^2 + 5.914x + 41.24 (theta: barrel angle in degrees, x: distance)
+        # 높이 차이 delta_h를 고려한 새로운 포신 각도 계산
+        # 적과의 거리가 사정거리 내인지 확인
+        distance = self.context.shared_data["distance"]
+        delta_h = self.context.shared_data["enemyPos"]["y"] - self.context.shared_data["playerPos"]["y"]  # delta_h가 없으면 0으로 설정
+        self.barrel_angle, self.barrel_angle_error = self._calculation_of_barrel_angle_by_distance()
+        
+        if self.context.EFFECTIVE_MIN_RANGE <= distance <= self.context.EFFECTIVE_MAX_RANGE:
+            # 포신 각도를 회귀식과 delta_h를 통해 구하기
+            theta_old_rad = self.barrel_angle
+            
+            # theta_new = arctan(tan(theta_old) + delta_h / distance)
+            tan_theta_new = math.tan(theta_old_rad) + delta_h / distance
+            barrel_angle_deg = math.atan(tan_theta_new) * 180 / math.pi  # 도 단위로 변환
+            
+            # 포신 각도 범위 확인
+            if not (-5.0 + 1e-6 <= barrel_angle_deg <= 10.0 + 1e-6):
+                print("barrel_angle: ", barrel_angle_deg)
+                raise ValueError("Calculated barrel angle is outside the range [-5, 10].")
+
+            # Convert barrel angle to radians (for output)
+            barrel_angle = barrel_angle_deg * math.pi / 180
+
+            # Calculate barrel angle error
+            current_turret_angle_rad = self.context.shared_data["playerTurretY"] * math.pi / 180
+            barrel_angle_error = current_turret_angle_rad - barrel_angle
+            barrel_angle_error = math.atan2(math.sin(barrel_angle_error), math.cos(barrel_angle_error))
+            print("barrel_angle: ",barrel_angle, "barrel_angle_error: ", barrel_angle_error)
             
             return barrel_angle, barrel_angle_error
         else:
@@ -104,7 +137,7 @@ class AimingBehavior:
 
     def control_information(self):
         goal_vector, heading_error = self._calculate_turret_angle()
-        barrel_angle, barrel_angle_error = self.ballistics._calculation_of_barrel_angle_by_distance()
+        barrel_angle, barrel_angle_error = self.ballistics._calculation_of_barrel_angle_by_distance_with_delta_h()
         return goal_vector, heading_error, barrel_angle, -barrel_angle_error
 
 class TurretControl:
@@ -121,8 +154,8 @@ class TurretControl:
             if self.previous_play_time < self.context.shared_data["time"]:
                 self.target_vector, self.heading_error, self.barrel_angle, self.barrel_angle_error = self.aiming_behavior.control_information()
                 print(f"🔄 Updated - Heading Error: {self.heading_error}, Barrel Angle Error: {self.barrel_angle_error}")
-                turret_weight = min(max(abs(self.heading_error) / math.pi, 0.3), 1)
-                barrel_weight = min(max(abs(self.barrel_angle_error) / math.pi, 0.3), 1)
+                turret_weight = min(max(abs(self.heading_error) / math.pi, 0.1), 1)
+                barrel_weight = min(max(abs(self.barrel_angle_error) / math.pi, 0.1), 1)
                 print(f"⚖️ Turret Weight: {turret_weight}, Barrel Weight: {barrel_weight}")
                 if abs(self.heading_error) > self.tolerance:
                     direction = "getRight" if self.heading_error > 0 else "getLeft"
