@@ -22,7 +22,6 @@ class Initialize:
     EFFECTIVE_MIN_RANGE = 21.002 # Unit: meters
     MAX_TOLERANCE = 0.01745329
     MIN_TOLERANCE=0.00872665
-    
 
     def __init__(self, data=None):
         if data is None:
