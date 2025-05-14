@@ -39,7 +39,7 @@ class Initialize:
         self.shared_data = data
         self.input_key_value = {
             "getRight": "E", "getLeft": "Q",
-            "getRise": "R", "getFall": "F", "getShot": "FIRE"
+            "getRise": "R", "getFall": "F", "getFire": "FIRE"
         }
 
 class Ballistics:
@@ -56,7 +56,7 @@ class Ballistics:
                 raise ValueError("Distance is outside the inverse function's domain [20.995, 137.68].")
 
             # 원 회귀식의 역함수
-            discriminant = 1.492 * distance - 24.564784 # 기존 회기식에 대한 역함수의 상수를를 -26.564784에서 -24.564784로 변경(더 높은 사거리 선정을 위해해)
+            discriminant = 1.492 * distance - 20.564784 # 기존 회기식에 대한 역함수의 상수를를 -26.564784에서 -24.564784로 변경(더 높은 사거리 선정을 위해해)
             if discriminant < 0:
                 raise ValueError("Discriminant is negative. No real solutions exist.")
 

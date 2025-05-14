@@ -15,6 +15,13 @@ move_command = []
 # Action commands with weights (15+ variations)
 action_command = []
 
+def change_degree(my_d):
+    if my_d > 180:
+        direction = -(360-my_d)
+    else:
+        direction = my_d
+    return direction
+
 # Flask 라우트들 (기존 코드 유지)
 @app.route('/detect', methods=['POST'])
 def detect():
@@ -86,9 +93,17 @@ def get_move():
 
 @app.route('/get_action', methods=['GET'])
 def get_action():
-    global action_command
-    if action_command:
-        command = action_command.pop(0)
+    data = shared_data.get_data()
+    context = turret_con.Initialize(data)
+    turret = turret_con.TurretControl(context)
+    result = turret.normal_control()
+    if result == None:
+        return jsonify({"turret": "", "weight": 0.0})
+    if len(result) == 2:
+        command = {"turret": result[0], "weight": result[1]}
+    else:
+        command = {"turret": result}
+    if command:
         print(f"🔫 Action Command: {command}")
         return jsonify(command)
     else:
@@ -169,24 +184,24 @@ def start():
     print("🚀 /start command received")
     return jsonify({"control": ""})
 
-def main():
-    while True:
-        try:
-            data = shared_data.get_data()
-            print(data["time"])  # 데이터 출력
-            context = turret_con.Initialize(data)
-            turret = turret_con.TurretControl(context)
-            result = turret.normal_control()
-            print(result)
-        except Exception as e:
-            print(f"Error in main: {e}")
-        import time
-        time.sleep(0.1)
+# def main():
+#     while True:
+#         try:
+#             data = shared_data.get_data()
+#             print(data["time"])  # 데이터 출력
+#             context = turret_con.Initialize(data)
+#             turret = turret_con.TurretControl(context)
+#             result = turret.normal_control()
+#             print(result)
+#         except Exception as e:
+#             print(f"Error in main: {e}")
+#         import time
+#         time.sleep(0.1)
 
 if __name__ == '__main__':
-    # main 함수를 스레드에서 실행
-    main_thread = threading.Thread(target=main, daemon=True)
-    main_thread.start()
+    # # main 함수를 스레드에서 실행
+    # main_thread = threading.Thread(target=main, daemon=True)
+    # main_thread.start()
     
     # Flask 서버 실행
     app.run(host='0.0.0.0', port=5000)
