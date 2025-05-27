@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>캔버스와 탱크 시뮬레이터 스트리밍</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            position: relative;
+            overflow-x: auto; /* 가로 스크롤 허용 */
+        }
+        canvas {
+            border: 1px solid black;
+            float: left; /* 캔버스를 좌측에 배치 */
+            margin-right: 20px; /* 스트리밍 화면과 간격 */
+        }
+        #coordinates {
+            margin-top: 10px;
+            font-family: Arial, sans-serif;
+            text-align: left;
+            clear: both; /* 캔버스 아래에 표시 */
+        }
+        #simulatorContainer {
+            position: absolute;
+            top: 20px;
+            right: 200px;
+            width: 700px; /* 스트리밍 화면 크기 */
+            height: 393px;
+        }
+        #simulatorStream {
+            width: 100%;
+            height: 100%;
+            border: 1px solid black;
+        }
+    </style>
+    <!-- Video.js for HLS support -->
+    <link href="https://vjs.zencdn.net/7.20.3/video-js.css" rel="stylesheet" />
+    <script src="https://vjs.zencdn.net/7.20.3/video.min.js"></script>
+</head>
+<body>
+    <div id="simulatorContainer">
+        <video id="simulatorStream" class="video-js vjs-default-skin" controls autoplay muted>
+            <source src="https://ireplay.tv/carsandroads/brands.m3u8" type="application/x-mpegURL">
+            Your browser does not support the video tag.
+        </video>
+    </div>
+    <canvas id="myCanvas" width="900" height="900"></canvas>
+    <div id="coordinates">클릭한 좌표: (x: 0, z: 0)</div>
+    <script>
+        const canvas = document.getElementById('myCanvas');
+        const ctx = canvas.getContext('2d');
+        const coordDisplay = document.getElementById('coordinates');
+
+        // 이미지 및 깃발 상태
+        const img = new Image();
+        const img2 = new Image();
+        let currentFlag = null; // 단일 깃발 위치 저장
+        const baseMapUrl = 'https://th.bing.com/th/id/OIP.PGHm7YGxXS_OK9f04nFkrgHaGe?rs=1&pid=ImgDetMain'; // 맵 이미지 URL
+        img2.src = 'https://cdn-icons-png.flaticon.com/512/854/854884.png'; // 깃발 이미지
+
+        // 맵 갱신 함수
+        function refreshMap() {
+            img.src = `${baseMapUrl}?t=${new Date().getTime()}`; // 캐싱 방지
+            img.onload = function() {
+                ctx.clearRect(0, 0, 900, 900);
+                ctx.drawImage(img, 0, 0, 900, 900);
+                ctx.strokeStyle = 'black';
+                ctx.strokeRect(0, 0, 900, 900);
+                // 현재 깃발 재렌더링
+                if (currentFlag && img2.complete) {
+                    ctx.drawImage(img2, currentFlag.x, currentFlag.z, 30, 30);
+                }
+                console.log('맵 갱신 완료');
+            };
+            img.onerror = function() {
+                console.error('맵 이미지 로드 실패');
+                ctx.fillStyle = 'white';
+                ctx.fillRect(0, 0, 900, 900);
+                ctx.strokeStyle = 'black';
+                ctx.strokeRect(0, 0, 900, 900);
+            };
+        }
+
+        // 초기 맵 로드
+        refreshMap();
+
+        // 깃발 이미지 로드 완료 시
+        img2.onload = function() {
+            console.log('깃발 이미지 로드 완료');
+            if (currentFlag) {
+                ctx.drawImage(img2, currentFlag.x, currentFlag.z, 30, 30);
+            }
+        };
+
+        img2.onerror = function() {
+            console.error('깃발 이미지 로드 실패');
+        };
+
+        // 시뮬레이터 좌표 전송 함수
+        async function sendCoordinatesToSimulator(x, z) {
+            try {
+                const response = await fetch('https://your-domain.com:3000/api/coordinates', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ x: x, z: z })
+                });
+                console.log(`좌표 전송: x=${x}, z=${z}`);
+            } catch (error) {
+                console.error('좌표 전송 실패:', error);
+            }
+        }
+
+        // 갱신 트리거 영역 정의
+        const refreshArea = {
+            xMin: 0,
+            xMax: 100,
+            zMin: 0,
+            zMax: 100
+        };
+
+        // 좌클릭 이벤트 처리
+        canvas.addEventListener('click', (event) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = Math.round(event.clientX - rect.left);
+            const z = Math.round(event.clientY - rect.top);
+            if (event.button === 0) {
+                if (x >= refreshArea.xMin && x <= refreshArea.xMax &&
+                    z >= refreshArea.zMin && z <= refreshArea.zMax) {
+                    refreshMap(); // 맵 갱신
+                    return;
+                }
+                const xNew = x / 3;
+                const zNew = z / 3;
+                coordDisplay.textContent = `(x: ${xNew.toFixed(1)}, z: ${zNew.toFixed(1)})`;
+            }
+        });
+
+        // 우클릭 이벤트 처리
+        canvas.addEventListener('contextmenu', (event) => {
+            event.preventDefault(); // 기본 우클릭 메뉴 방지
+            const rect = canvas.getBoundingClientRect();
+            const x = Math.round(event.clientX - rect.left);
+            const z = Math.round(event.clientY - rect.top);
+            const xNew = x / 3;
+            const zNew = z / 3;
+            const xNew_1 = x - 15; // 깃발 중심 조정 (30x30 크기 기준)
+            const zNew_1 = z - 15;
+
+            // 새로운 깃발 설정 (이전 깃발 덮어씌움)
+            currentFlag = { x: xNew_1, z: zNew_1 };
+
+            // 캔버스 갱신
+            ctx.clearRect(0, 0, 900, 900);
+            ctx.drawImage(img, 0, 0, 900, 900);
+            ctx.strokeStyle = 'black';
+            ctx.strokeRect(0, 0, 900, 900);
+
+            // 현재 깃발 그리기
+            if (img2.complete && currentFlag) {
+                ctx.drawImage(img2, currentFlag.x, currentFlag.z, 30, 30);
+            } else {
+                console.warn('깃발 이미지가 아직 로드되지 않음');
+            }
+
+            // 좌표를 시뮬레이터로 전송
+            sendCoordinatesToSimulator(xNew, zNew);
+
+            coordDisplay.textContent = `move (x: ${xNew.toFixed(1)}, z: ${zNew.toFixed(1)})`;
+        });
+
+        // 더블클릭으로 깃발 삭제
+        canvas.addEventListener('dblclick', (event) => {
+            currentFlag = null; // 깃발 제거
+            ctx.clearRect(0, 0, 900, 900);
+            ctx.drawImage(img, 0, 0, 900, 900);
+            ctx.strokeStyle = 'black';
+            ctx.strokeRect(0, 0, 900, 900);
+            coordDisplay.textContent = '깃발 삭제됨';
+        });
+
+        // Video.js 초기화
+        videojs('simulatorStream', {
+            controls: true,
+            autoplay: true,
+            muted: true,
+            fluid: true
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>캔버스에 스타크래프트 맵 이미지 삽입 및 좌표 출력</title>
+    <style>
+        canvas {
+            border: 1px solid black;
+        }
+        #coordinates {
+            margin-top: 10px;
+            font-family: Arial, sans-serif;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="myCanvas" width="900" height="900"></canvas>
+    <div id="coordinates">클릭한 좌표: (x: 0, z: 0)</div>
+    <script>
+        const canvas = document.getElementById('myCanvas');
+        const ctx = canvas.getContext('2d');
+        const coordDisplay = document.getElementById('coordinates');
+
+        // 이미지 로드
+        const img = new Image();
+        const img2 = new Image();
+        img.src = 'https://th.bing.com/th/id/OIP.PGHm7YGxXS_OK9f04nFkrgHaGe?rs=1&pid=ImgDetMain'; // 스타크래프트 맵 이미지
+        img2.src = 'https://cdn-icons-png.flaticon.com/512/854/854884.png'; // 깃발 이미지
+
+        // 맵 이미지 로드 완료 시
+        img.onload = function() {
+            ctx.drawImage(img, 0, 0, 900, 900);
+            ctx.strokeStyle = 'black';
+            ctx.strokeRect(0, 0, 900, 900);
+        };
+
+        img.onerror = function() {
+            console.error('맵 이미지 로드 실패');
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, 900, 900);
+            ctx.strokeStyle = 'black';
+            ctx.strokeRect(0, 0, 900, 900);
+        };
+
+        // 깃발 이미지 로드 완료 시 (필요 시 로깅)
+        img2.onload = function() {
+            console.log('깃발 이미지 로드 완료');
+        };
+
+        img2.onerror = function() {
+            console.error('깃발 이미지 로드 실패');
+        };
+
+        // 좌클릭 이벤트 처리
+        canvas.addEventListener('click', (event) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = Math.round(event.clientX - rect.left);
+            const z = Math.round(event.clientY - rect.top);
+            if (event.button === 0) {
+                const xNew = x / 3;
+                const zNew = z / 3;
+                coordDisplay.textContent = `(x: ${xNew.toFixed(1)}, z: ${zNew.toFixed(1)})`;
+            }
+        });
+
+        // 우클릭 이벤트 처리
+        canvas.addEventListener('contextmenu', (event) => {
+            event.preventDefault(); // 기본 우클릭 메뉴 방지
+            const rect = canvas.getBoundingClientRect();
+            const x = Math.round(event.clientX - rect.left);
+            const z = Math.round(event.clientY - rect.top);
+            const xNew = x / 3;
+            const zNew = z / 3;
+            const xNew_1 = x - 15; // 깃발 중심을 클릭 지점에 맞추기 위해 조정 (30x30 크기 기준)
+            const zNew_1 = z - 15;
+
+            // 캔버스 초기화 및 맵 이미지 다시 그리기
+            ctx.clearRect(0, 0, 900, 900);
+            ctx.drawImage(img, 0, 0, 900, 900);
+            ctx.strokeStyle = 'black';
+            ctx.strokeRect(0, 0, 900, 900);
+
+            // 깃발 이미지 그리기
+            ctx.drawImage(img2, xNew_1, zNew_1, 30, 30); // 고정된 크기(30x30)로 깃발 그리기
+
+            coordDisplay.textContent = `move (x: ${xNew.toFixed(1)}, z: ${zNew.toFixed(1)})`;
+        });
+    </script>
+</body>
+</html>

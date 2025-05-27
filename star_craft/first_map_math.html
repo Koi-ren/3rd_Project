@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>간단한 계산기</title>
+</head>
+<body>
+    <input type="number" id="num1" placeholder="첫 번째 숫자">
+    <input type="number" id="num2" placeholder="두 번째 숫자">
+    <button onclick="calculate()">계산</button>
+    <p>결과: <span id="result"></span></p>
+
+    <script>
+        function calculate() {
+            let num1 = parseFloat(document.getElementById("num1").value);
+            let num2 = parseFloat(document.getElementById("num2").value);
+            let sum = num1 + num2;
+            document.getElementById("result").innerText = sum;
+        }
+    </script>
+</body>
+</html>
