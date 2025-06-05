@@ -8,7 +8,7 @@ class Vector:
         self.y = y
 
     # 벡터 크기 정하기
-    def magnitude(self): return math.sqrt(self.x**2 + self.y**2)
+    def magnitude(self): return math.sqrt(self.x**2  + self.y**2)
 
     # 벡터 정규화
     def normalize(self):
